@@ -1,0 +1,9 @@
+{
+  "name": "night-city-map-night-city-investments-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

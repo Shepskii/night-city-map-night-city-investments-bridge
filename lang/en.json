@@ -1,0 +1,15 @@
+{
+  "NCIB": {
+    "Settings": {
+      "Enabled": {
+        "Name": "Report gig outcomes to Night City Investments",
+        "Hint": "When a gig is marked completed or failed in Night City Map, tell Night City Investments so the client's share price can react. Turn off to stop reporting without disabling the module."
+      }
+    },
+    "Warn": {
+      "NoInvestments": "Night City Investments is not active, so gig outcomes cannot be reported.",
+      "OldInvestments": "This version of Night City Investments cannot receive gig outcomes. Update it to version 0.6.0 or later.",
+      "NoMap": "Night City Map is not active, so there are no gigs to watch."
+    }
+  }
+}
