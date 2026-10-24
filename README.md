@@ -1,13 +1,13 @@
 # Night City Map - Night City Investments Bridge
 
-A standalone Foundry VTT module that lets Night City Map gigs move the share price of the client's company in [Night City Investments](https://github.com/Shepskii/night-city-investments).
+A standalone Foundry VTT module that lets Night City Map gigs move the share price of the client's company in Night City Investments.
 
 ## Requirements
 
 - Foundry VTT v12
 - Cyberpunk RED Core
 - [Night City Map](https://github.com/samroaleksej-bit/night-city-map)
-- Night City Investments 0.6.0 or later
+- [Night City Investments](https://github.com/Shepskii/night-city-investments)
 
 ## Installation
 
