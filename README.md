@@ -7,7 +7,7 @@ A standalone Foundry VTT module that lets Night City Map gigs move the share pri
 - Foundry VTT v12
 - Cyberpunk RED Core
 - [Night City Map](https://github.com/samroaleksej-bit/night-city-map)
-- [Night City Investments](https://github.com/Shepskii/night-city-investments)
+- [Night City Investments](https://github.com/Shepskii/night-city-investments) - In Development.
 
 ## Installation
 
