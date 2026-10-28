@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { diffGigs, buildReport, findRunners, createBridge } from '../scripts/bridge.js';
+import { diffGigs, buildReport, findRunners, createBridge } from '../scripts/bridge-0.2.0.js';
 
 const gig = (id, status, extra = {}) => ({ id, status, title: `Gig ${id}`, client: 'Arasaka', reward: '1500 eb', ...extra });
 const quiet = { info() {}, error() {} };

@@ -32,7 +32,7 @@
     ]
   },
   "esmodules": [
-    "scripts/bridge.js"
+    "scripts/bridge-0.2.0.js"
   ],
   "languages": [
     {
