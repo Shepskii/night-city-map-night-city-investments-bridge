@@ -1,6 +1,6 @@
 # Night City Map - Night City Investments Bridge
 
-A standalone Foundry VTT module that lets Night City Map gigs move the share price of the client's company in Night City Investments.
+A Foundry VTT bridge module that lets Night City Map gigs move the share price of the client's company in Night City Investments.
 
 ## Requirements
 
