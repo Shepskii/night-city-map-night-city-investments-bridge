@@ -2,7 +2,7 @@
   "id": "night-city-map-night-city-investments-bridge",
   "title": "Night City Map - Night City Investments Bridge",
   "description": "Completed and failed Night City Map gigs move the share price of the client's company in Night City Investments.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "authors": [
     {
       "name": "Shepskii"
@@ -32,7 +32,7 @@
     ]
   },
   "esmodules": [
-    "scripts/bridge-0.1.0.js"
+    "scripts/bridge.js"
   ],
   "languages": [
     {

@@ -6,8 +6,8 @@ A standalone Foundry VTT module that lets Night City Map gigs move the share pri
 
 - Foundry VTT v12
 - Cyberpunk RED Core
-- [Night City Map](https://github.com/samroaleksej-bit/night-city-map)
-- [Night City Investments](https://github.com/Shepskii/night-city-investments) - In Development
+- [Night City Map](https://github.com/samroaleksej-bit/night-city-map) (checked against v0.21.0)
+- [Night City Investments](https://github.com/Shepskii/night-city-investments)
 
 ## Installation
 
@@ -23,6 +23,8 @@ When you mark a gig **Completed** or **Failed** on the map, the bridge reports i
 2. It works out the reaction. A failure hurts more than a success helps, a bigger reward moves the price further, and a company that has had several gig results lately reacts less.
 3. The effect shows after one to three days, and a generic headline is published when it does. The headline never says what the gig was.
 
+If a player took the gig from the map or the Agent phone, the bridge also reports their character as the gig's **runner**. With insider-trading heat on in Night City Investments, a runner who trades the client's shares before the news shows draws the most heat.
+
 By default the GM approves each impact first, in the **Gigs** tab of the Market GM Console, where the size, delay and headline can be changed. A client that cannot be matched waits in a "Needs a company" list until you pick one. Your choice is remembered for later gigs from that client.
 
 Night City Map's own gigs have a **client** field only when they were generated. For a gig you wrote yourself, either name the company in the gig's text, or put a tag in the GM notes:
@@ -35,6 +37,7 @@ Night City Map's own gigs have a **client** field only when they were generated.
 - A gig that goes from hidden, offered or active to Completed or Failed is reported once.
 - Gigs that were already finished when the module loaded are not reported. Use "Report an outcome by hand" in the Gigs tab for those.
 - Changing a finished gig from Completed to Failed (or back) is not reported again. The first result stands.
+- The bridge looks whenever the map saves its gigs, so it needs no polling and does not touch the map's own code.
 - Only the active GM's client reports. Night City Investments ignores an outcome it has already seen, so nothing is ever applied twice.
 
 ## Settings

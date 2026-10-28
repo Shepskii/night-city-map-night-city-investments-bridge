@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { diffGigs, buildReport, createBridge } from '../scripts/bridge-0.1.0.js';
+import { diffGigs, buildReport, findRunners, createBridge } from '../scripts/bridge.js';
 
 const gig = (id, status, extra = {}) => ({ id, status, title: `Gig ${id}`, client: 'Arasaka', reward: '1500 eb', ...extra });
 const quiet = { info() {}, error() {} };
@@ -30,12 +30,26 @@ test('flipping between done and failed, reopening, new gigs and deleted gigs are
   assert.deepEqual([...diffGigs(null, [{ status: 'done' }, null]).next], []);
 });
 
-test('the report carries the client, reward and notes, and a stable key', () => {
-  const r = buildReport({ id: 'q1', status: 'done', client: '  Arasaka ', reward: 2000, title: 'Courier', desc: 'Deliver a case', notes: '[NCI: ARA]', giver: 'poi1', target: 'poi2' }, 'done');
+test('the report carries the client, reward, notes and runner, and a stable key', () => {
+  const r = buildReport({ id: 'q1', status: 'done', client: '  Arasaka ', reward: 2000, title: 'Courier', desc: 'Deliver a case', notes: '[NCI: ARA]', giver: 'poi1', target: 'poi2', takenBy: 'V' }, 'done', ['a_v']);
   assert.deepEqual(r, {
     gigId: 'q1', sourceKey: 'gig:q1:done', outcome: 'done', client: 'Arasaka', reward: '2000', title: 'Courier', desc: 'Deliver a case', notes: '[NCI: ARA]',
+    takenBy: 'V', runners: ['a_v'],
   });
-  assert.deepEqual(buildReport({ id: 'q2' }, 'failed'), { gigId: 'q2', sourceKey: 'gig:q2:failed', outcome: 'failed', client: '', reward: '', title: '', desc: '', notes: '' });
+  assert.deepEqual(buildReport({ id: 'q2' }, 'failed'), {
+    gigId: 'q2', sourceKey: 'gig:q2:failed', outcome: 'failed', client: '', reward: '', title: '', desc: '', notes: '', takenBy: '', runners: [],
+  });
+});
+
+test('the runner is the character the map named, or the character of the user it named', () => {
+  const v = { id: 'a_v', type: 'character', name: 'V' };
+  const jackie = { id: 'a_j', type: 'character', name: 'Jackie' };
+  const world = { actors: [{ id: 'npc', type: 'npc', name: 'V' }, v, jackie], users: [{ name: 'Sam', character: jackie }, { name: 'Alex', character: null }] };
+  assert.deepEqual(findRunners('V', world), ['a_v'], 'a character of that name, not an NPC');
+  assert.deepEqual(findRunners(' Sam ', world), ['a_j'], 'a player with no character of that name: their character');
+  assert.deepEqual(findRunners('Alex', world), [], 'a player with no character');
+  assert.deepEqual(findRunners('', world), []);
+  assert.deepEqual(findRunners(undefined, world), []);
 });
 
 function harness(overrides = {}) {
@@ -146,4 +160,16 @@ test('it gives up after too many failed attempts', async () => {
   for (let i = 0; i < 30; i++) await bridge.scan();
   assert.equal(n, 20);
   assert.equal(bridge.outbox.size, 0);
+});
+
+test('the runner of a gig the players took goes with its outcome', async () => {
+  const { state, calls } = harness();
+  const bridge = createBridge({
+    getGigs: () => state.gigs, getApi: () => state.api, isActiveGM: () => true, logger: quiet,
+    runnersOf: (g) => (g.takenBy === 'V' ? ['a_v'] : []),
+  });
+  await bridge.scan();
+  state.gigs = [gig('a', 'done', { takenBy: 'V' }), gig('b', 'failed')];
+  await bridge.scan();
+  assert.deepEqual(calls.map((c) => [c.sourceKey, c.runners]), [['gig:a:done', ['a_v']], ['gig:b:failed', []]]);
 });

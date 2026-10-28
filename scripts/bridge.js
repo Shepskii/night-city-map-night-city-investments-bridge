@@ -3,8 +3,9 @@
  *
  * Watches Night City Map's gigs. When one goes from open (hidden, offer or active) to done or failed,
  * the outcome is reported to Night City Investments, which finds the client's company and moves its
- * share price after a short delay. Night City Map has no hooks, so this follows the other bridges:
- * it wraps the map's click handler, listens for the setting changing, and polls once a second.
+ * share price after a short delay. Night City Map has no hooks of its own, but every change to a gig
+ * goes through its `save()`, which writes the map's `state` world setting, so the setting changing
+ * is the signal to look.
  *
  * Only the active GM reports. Night City Investments ignores an outcome it has already seen, so a
  * repeat is harmless.
@@ -13,11 +14,8 @@
 const MODULE_ID = 'night-city-map-night-city-investments-bridge';
 const MAP_ID = 'night-city-map';
 const INVEST_ID = 'night-city-investments';
-const WRAPPED_HANDLER_FLAG = '__nightCityInvestmentsBridge';
-const POLL_MS = 1000;
 const MAX_ATTEMPTS = 20;
 const CLOSED = new Set(['done', 'failed']);
-const GIG_ACTIONS = new Set(['quest-status', 'new-quest', 'edit-quest', 'del-quest', 'gen-gig', 'gen-gigs', 'take']);
 
 const text = (value) => (value == null ? '' : String(value).trim());
 
@@ -45,8 +43,12 @@ export function diffGigs(known, gigs) {
   return { next, transitions };
 }
 
-/** What Night City Investments needs to know about a finished gig. */
-export function buildReport(gig, outcome) {
+/**
+ * What Night City Investments needs to know about a finished gig.
+ * @param {string[]} [runners] - ids of the characters who ran it; Night City Investments counts their
+ *        trades in the client's shares as better informed than anyone's
+ */
+export function buildReport(gig, outcome, runners = []) {
   return {
     gigId: gig.id,
     sourceKey: `gig:${gig.id}:${outcome}`,
@@ -56,7 +58,23 @@ export function buildReport(gig, outcome) {
     title: text(gig.title),
     desc: text(gig.desc),
     notes: text(gig.notes),
+    takenBy: text(gig.takenBy),
+    runners,
   };
+}
+
+/**
+ * The character who took a gig. The map records the taker's character name, or their user name if
+ * they have no character, so look for a character of that name first, then a user's character.
+ * @param {string} takenBy
+ * @param {{actors: object[], users: object[]}} world
+ * @returns {string[]} the character's id, or nothing
+ */
+export function findRunners(takenBy, { actors, users }) {
+  const name = text(takenBy);
+  if (!name) return [];
+  const actor = actors.find((a) => a.type === 'character' && a.name === name) ?? users.find((u) => u.name === name)?.character;
+  return actor?.id ? [actor.id] : [];
 }
 
 /**
@@ -67,8 +85,9 @@ export function buildReport(gig, outcome) {
  * @param {() => boolean} o.isActiveGM
  * @param {() => boolean} [o.enabled]
  * @param {(key: string) => void} [o.warn] - called once for each kind of problem
+ * @param {(gig: object) => string[]} [o.runnersOf] - ids of the characters who ran a gig
  */
-export function createBridge({ getGigs, getApi, isActiveGM, enabled = () => true, warn = () => {}, logger = console }) {
+export function createBridge({ getGigs, getApi, isActiveGM, enabled = () => true, warn = () => {}, runnersOf = () => [], logger = console }) {
   let known = null;
   let chain = Promise.resolve();
   const outbox = new Map();
@@ -120,7 +139,7 @@ export function createBridge({ getGigs, getApi, isActiveGM, enabled = () => true
     known = next;
     if (isActiveGM() && enabled()) {
       for (const { gig, outcome } of transitions) {
-        const payload = buildReport(gig, outcome);
+        const payload = buildReport(gig, outcome, runnersOf(gig));
         if (!outbox.has(payload.sourceKey)) outbox.set(payload.sourceKey, { payload, attempts: 0 });
       }
     }
@@ -133,29 +152,8 @@ export function createBridge({ getGigs, getApi, isActiveGM, enabled = () => true
 // ── Foundry wiring ───────────────────────────────────────────────────────────
 
 if (typeof Hooks !== 'undefined') {
-  let bridge = null;
-
   const mapGigs = () => game.settings.get(MAP_ID, 'state')?.quests ?? [];
   const activeGM = () => !!game.user?.isGM && game.user.id === game.users.activeGM?.id;
-
-  /** Rescan straight after the map handles a click that can change a gig. */
-  const wrapMapActions = () => {
-    const mapUI = game.modules?.get?.(MAP_ID)?.api?.ui;
-    if (!mapUI || typeof mapUI.onClick !== 'function' || mapUI.onClick[WRAPPED_HANDLER_FLAG]) return;
-
-    const onClick = mapUI.onClick;
-    const wrapped = async function (...args) {
-      const action = args[0]?.target?.closest?.('[data-act]')?.dataset.act;
-      try {
-        return await onClick.apply(this, args);
-      } finally {
-        if (GIG_ACTIONS.has(action)) bridge?.scan();
-      }
-    };
-    Object.defineProperty(wrapped, WRAPPED_HANDLER_FLAG, { value: true });
-    mapUI.onClick = wrapped;
-    if (mapUI.onClick !== wrapped) console.error(`${MODULE_ID} | Could not attach the Night City Map gig action listener.`);
-  };
 
   Hooks.once('init', () => {
     game.settings.register(MODULE_ID, 'enabled', {
@@ -175,24 +173,23 @@ if (typeof Hooks !== 'undefined') {
       return;
     }
 
-    bridge = createBridge({
+    const bridge = createBridge({
       getGigs: mapGigs,
       getApi: () => game.modules?.get?.(INVEST_ID)?.api,
       isActiveGM: activeGM,
       enabled: () => game.settings.get(MODULE_ID, 'enabled') !== false,
       warn: (key) => ui.notifications.warn(game.i18n.localize(`NCIB.Warn.${key}`)),
+      runnersOf: (gig) => findRunners(gig.takenBy, { actors: game.actors.contents, users: game.users.contents }),
     });
     bridge.scan();
-    wrapMapActions();
 
-    // The map stores its gigs in a world setting; this fires as soon as it changes, on every client.
-    Hooks.on('updateSetting', (setting) => {
+    // Every gig change is saved to the map's world setting, and this fires on every client as soon as
+    // it is. The very first save in a world creates the setting instead of updating it.
+    const onSetting = (setting) => {
       if (setting?.key === `${MAP_ID}.state`) bridge.scan();
-    });
-    setInterval(() => {
-      wrapMapActions();
-      bridge.scan();
-    }, POLL_MS);
+    };
+    Hooks.on('updateSetting', onSetting);
+    Hooks.on('createSetting', onSetting);
 
     console.info(`${MODULE_ID} | Watching Night City Map gigs.`);
   });
