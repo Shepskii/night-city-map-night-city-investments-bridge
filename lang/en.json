@@ -4,6 +4,10 @@
       "Enabled": {
         "Name": "Report gig outcomes to Night City Investments",
         "Hint": "When a gig is marked completed or failed in Night City Map, tell Night City Investments so the client's share price can react. Turn off to stop reporting without disabling the module."
+      },
+      "Pins": {
+        "Name": "Show player businesses on the map",
+        "Hint": "Each open business in Night City Investments gets a pin in its district, showing its name, kind, stage and location, and nothing else. Move, edit, hide or delete a pin as you like: your changes stay."
       }
     },
     "Warn": {

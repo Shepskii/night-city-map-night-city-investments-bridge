@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { diffGigs, buildReport, findRunners, createBridge } from '../scripts/bridge-0.2.0.js';
+import { diffGigs, buildReport, findRunners, createBridge, syncPins } from '../scripts/bridge-0.3.0.js';
 
 const gig = (id, status, extra = {}) => ({ id, status, title: `Gig ${id}`, client: 'Arasaka', reward: '1500 eb', ...extra });
 const quiet = { info() {}, error() {} };
@@ -172,4 +172,53 @@ test('the runner of a gig the players took goes with its outcome', async () => {
   state.gigs = [gig('a', 'done', { takenBy: 'V' }), gig('b', 'failed')];
   await bridge.scan();
   assert.deepEqual(calls.map((c) => [c.sourceKey, c.runners]), [['gig:a:done', ['a_v']], ['gig:b:failed', []]]);
+});
+
+const shop = (id, extra = {}) => ({ id, name: `Shop ${id}`, status: 'open', district: 'watson', location: 'Upstairs', kind: 'Ripperdoc clinic', stage: 'Side business', ticker: '', ...extra });
+const DISTRICTS = [{ id: 'watson', x: 0.5, y: 0.2 }];
+const pinsFor = (businesses, pins = [], placed = {}) => syncPins({ pins, placed, businesses, districts: DISTRICTS });
+
+test('an open business gets a pin near its district\'s centre, saying what the street can see', () => {
+  const { pins, placed, changed } = pinsFor([shop('a'), shop('p', { status: 'pending' }), shop('f', { status: 'forming' })]);
+  assert.equal(changed, true);
+  assert.deepEqual(pins.map((p) => p.id), ['nci_a'], 'not until it opens');
+  assert.equal(pins[0].name, 'Shop a');
+  assert.equal(pins[0].desc, 'Ripperdoc clinic · Side business · Upstairs');
+  assert.equal(pins[0].cat, 'custom');
+  assert.equal(pins[0].hidden, false);
+  assert.ok(Math.abs(pins[0].x - 0.5) < 0.03 && Math.abs(pins[0].y - 0.2) < 0.03);
+  assert.deepEqual(Object.keys(placed), ['a']);
+});
+
+test('several in one district do not stack, a ticker shows, and an unknown district starts at the centre', () => {
+  const { pins } = pinsFor([shop('a'), shop('b'), shop('c', { ticker: 'SCX' }), shop('d', { district: 'cd123' })]);
+  assert.equal(new Set(pins.map((p) => `${p.x},${p.y}`)).size, 4);
+  assert.equal(pins[2].name, 'Shop c (SCX)');
+  assert.ok(Math.abs(pins[3].x - 0.5) < 0.03 && Math.abs(pins[3].y - 0.5) < 0.03);
+});
+
+test('the GM\'s changes stand: a moved pin stays, edited text stays, and a deleted one does not come back', () => {
+  const first = pinsFor([shop('a')]);
+  const moved = [{ ...first.pins[0], x: 0.9, y: 0.9, desc: 'A front for something', hidden: true }];
+  const again = pinsFor([shop('a')], moved, first.placed);
+  assert.equal(again.changed, false, 'nothing to do');
+  assert.deepEqual(again.pins, moved);
+  const deleted = pinsFor([shop('a')], [], first.placed);
+  assert.equal(deleted.changed, false);
+  assert.deepEqual(deleted.pins, []);
+});
+
+test('the business\'s own change updates its text, not where it is; closing takes the pin away', () => {
+  const first = pinsFor([shop('a')]);
+  const moved = [{ ...first.pins[0], x: 0.9, y: 0.9, hidden: true }];
+  const renamed = pinsFor([shop('a', { name: 'New name', stage: 'Registered business' })], moved, first.placed);
+  assert.equal(renamed.changed, true);
+  assert.equal(renamed.pins[0].name, 'New name');
+  assert.match(renamed.pins[0].desc, /Registered business/);
+  assert.deepEqual([renamed.pins[0].x, renamed.pins[0].hidden], [0.9, true]);
+  const closed = pinsFor([shop('a', { status: 'closed' })], moved, first.placed);
+  assert.deepEqual(closed.pins, []);
+  assert.deepEqual(closed.placed, {});
+  const gone = pinsFor([], [...moved, { id: 'c1', name: 'The GM\'s own' }], first.placed);
+  assert.deepEqual(gone.pins.map((p) => p.id), ['c1'], 'a removed business too, and nobody else\'s pin');
 });
