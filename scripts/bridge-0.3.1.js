@@ -35,6 +35,9 @@ function pinPlace(district, n) {
   return { x: clamp((district?.x ?? 0.5) + Math.cos(angle) * reach), y: clamp((district?.y ?? 0.5) + Math.sin(angle) * reach) };
 }
 
+/** The map's districts now: the GM's own, if they are on, or its built-in ones. */
+export const currentDistricts = (state, builtIn) => (state?.geo?.on ? state.geo.districts ?? [] : builtIn);
+
 /**
  * Bring the map's pins in line with the open businesses. A new one gets a pin in its district. After that the GM's
  * changes stand: where they moved it, what they wrote, and a pin they deleted stays deleted, since `placed` remembers
@@ -258,14 +261,14 @@ if (typeof Hooks !== 'undefined') {
     Hooks.on('updateSetting', onSetting);
     Hooks.on('createSetting', onSetting);
 
-    // Night City Map has no API for its pins: they are in the same setting, and its districts' positions in its data.
+    // Night City Map has no API for its pins or districts: they are in the same setting, and its built-in districts in its data.
     let districts = [];
     let queue = Promise.resolve();
     const syncNow = async () => {
       const directory = game.modules?.get?.(INVEST_ID)?.api?.gm?.businessDirectory;
       if (!activeGM() || !directory || game.settings.get(MODULE_ID, 'pins') === false) return;
       const state = game.settings.get(MAP_ID, 'state') ?? {};
-      const out = syncPins({ pins: state.pins ?? [], placed: game.settings.get(MODULE_ID, 'placed') ?? {}, businesses: directory(), districts });
+      const out = syncPins({ pins: state.pins ?? [], placed: game.settings.get(MODULE_ID, 'placed') ?? {}, businesses: directory(), districts: currentDistricts(state, districts) });
       if (!out.changed) return;
       await game.settings.set(MAP_ID, 'state', { ...state, pins: out.pins });
       await game.settings.set(MODULE_ID, 'placed', out.placed);

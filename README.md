@@ -34,7 +34,7 @@ Night City Map's own gigs have a **client** field only when they were generated.
 
 ## Player businesses on the map
 
-With Night City Investments 0.20.0 or later, each open player business gets a pin on the map, in its district, showing its name, kind, stage and location. Nothing behind the front ever reaches the map: no money, no staff, no back room.
+With Night City Investments 0.20.0 or later, each open player business gets a pin on the map, in its district (your own districts, if you have them on), showing its name, kind, stage and location. Nothing behind the front ever reaches the map: no money, no staff, no back room.
 
 They are ordinary custom pins, so you can move one in the map's Arrange mode, edit it, hide it from players or delete it, and your changes stay. A deleted pin does not come back. A pin's text changes only when the business's own does, and it goes when the business closes. On a custom map, whose districts have other ids, pins start at the map's centre for you to move. The **Show player businesses on the map** setting turns this off.
 

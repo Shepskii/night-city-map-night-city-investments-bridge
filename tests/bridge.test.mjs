@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { diffGigs, buildReport, findRunners, createBridge, syncPins } from '../scripts/bridge-0.3.0.js';
+import { diffGigs, buildReport, findRunners, createBridge, syncPins, currentDistricts } from '../scripts/bridge-0.3.1.js';
 
 const gig = (id, status, extra = {}) => ({ id, status, title: `Gig ${id}`, client: 'Arasaka', reward: '1500 eb', ...extra });
 const quiet = { info() {}, error() {} };
@@ -221,4 +221,14 @@ test('the business\'s own change updates its text, not where it is; closing take
   assert.deepEqual(closed.placed, {});
   const gone = pinsFor([], [...moved, { id: 'c1', name: 'The GM\'s own' }], first.placed);
   assert.deepEqual(gone.pins.map((p) => p.id), ['c1'], 'a removed business too, and nobody else\'s pin');
+});
+
+test('new pins go by the districts on the map now: the GM\'s own, if they are on', () => {
+  const builtIn = [{ id: 'watson', x: 0.5, y: 0.2 }];
+  const own = [{ id: 'cdport', x: 0.9, y: 0.9 }];
+  assert.equal(currentDistricts({}, builtIn), builtIn);
+  assert.equal(currentDistricts({ geo: { on: false, districts: own } }, builtIn), builtIn);
+  assert.equal(currentDistricts({ geo: { on: true, districts: own } }, builtIn), own);
+  const { pins } = syncPins({ pins: [], placed: {}, businesses: [shop('a', { district: 'cdport' })], districts: currentDistricts({ geo: { on: true, districts: own } }, builtIn) });
+  assert.ok(pins[0].x > 0.7 && pins[0].y > 0.7, 'near the new district');
 });
