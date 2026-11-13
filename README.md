@@ -2,7 +2,7 @@
 
 ![Foundry v12](https://img.shields.io/badge/Foundry-v12-informational)
 ![System](https://img.shields.io/badge/system-cyberpunk--red--core-e5233d)
-![License: MIT](https://img.shields.io/badge/license-MIT-green)
+![License: MPL-2.0](https://img.shields.io/badge/license-MPL--2.0-brightgreen)
 
 A Foundry VTT bridge module that lets Night City Map gigs move the share price of the client's company in Night City Investments.
 
