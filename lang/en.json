@@ -7,7 +7,11 @@
       },
       "Pins": {
         "Name": "Show player businesses on the map",
-        "Hint": "Each open business in Night City Investments gets a pin in its district, showing its name, kind, stage and location, and nothing else. Move, edit, hide or delete a pin as you like: your changes stay."
+        "Hint": "Each open business in Night City Investments gets a pin in its district, showing its name, kind, stage and location, and nothing else. Players' businesses go in a Player businesses category and NPCs' companies in NPC companies. Move, edit, hide or delete a pin as you like: your changes stay."
+      },
+      "Owners": {
+        "Name": "Name the owners of player businesses on their pins",
+        "Hint": "A player business's pin lists who runs it in Night City Map's \"who lives here\", with portraits for names that match an actor: its partners with a vote, or a company's officers. Never a hidden holder or a silent partner. NPCs' companies are left out."
       }
     },
     "Warn": {

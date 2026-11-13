@@ -39,18 +39,52 @@ function pinPlace(district, n) {
 export const currentDistricts = (state, builtIn) => (state?.geo?.on ? state.geo.districts ?? [] : builtIn);
 
 /**
- * Bring the map's pins in line with the open businesses. A new one gets a pin in its district. After that the GM's
- * changes stand: where they moved it, what they wrote, and a pin they deleted stays deleted, since `placed` remembers
- * it. The text is rewritten only when the business's own changes. A closed business's pin goes.
+ * The map categories this bridge makes (Night City Map 0.29.0 and later), one for players' businesses and one for NPCs'
+ * companies. The GM may rename, recolour or delete them on the map like any other.
+ */
+export const CATEGORIES = Object.freeze({
+  nci_player: { ru: 'Player businesses', color: '#ff9f1c', icon: 'fa-briefcase' },
+  nci_npc: { ru: 'NPC companies', color: '#8fa3bf', icon: 'fa-building' },
+});
+
+/** Which of this bridge's categories a business's pin goes in. */
+const categoryOf = (b) => (b.npc ? 'nci_npc' : 'nci_player');
+
+/**
+ * Make this bridge's categories on the map, each once: one the GM has deleted is not made again, since `made` remembers it.
+ * @param {object} cats - the map's own categories (`state.cats`)
+ * @param {string[]} made - the categories made before
+ * @returns {{cats: object, made: string[], changed: boolean}}
+ */
+export function ensureCategories(cats = {}, made = []) {
+  const out = { ...cats };
+  const done = [...made];
+  let changed = false;
+  for (const [key, cat] of Object.entries(CATEGORIES)) {
+    if (done.includes(key)) continue;
+    if (!out[key]) out[key] = { ...cat };
+    done.push(key);
+    changed = true;
+  }
+  return { cats: out, made: done, changed };
+}
+
+/**
+ * Bring the map's pins in line with the open businesses. A new one gets a pin in its district, in its category. After
+ * that the GM's changes stand: where they moved it, what they wrote, which category they put it in, and a pin they
+ * deleted stays deleted, since `placed` remembers it. The text, and the owners on a player's business, are rewritten
+ * only when the business's own change. A closed business's pin goes.
  *
  * @param {object} o
  * @param {object[]} o.pins - the map's pins
- * @param {object} o.placed - business id to what was last written for it: `{name, desc, district}`
+ * @param {object} o.placed - business id to what was last written for it: `{name, desc, district, who, cat}`
  * @param {object[]} o.businesses - from Night City Investments' directory
  * @param {{id: string, x: number, y: number}[]} o.districts - the map's
+ * @param {object} [o.cats] - the map's categories now: a pin goes only in one of them, or stays a GM Marker
+ * @param {boolean} [o.owners] - name a player's business's owners in its pin's "who lives here"
  * @returns {{pins: object[], placed: object, changed: boolean}}
  */
-export function syncPins({ pins, placed, businesses, districts }) {
+export function syncPins({ pins, placed, businesses, districts, cats = {}, owners = true }) {
   let next = [...pins];
   const remembered = { ...placed };
   let changed = false;
@@ -61,18 +95,37 @@ export function syncPins({ pins, placed, businesses, districts }) {
     delete remembered[id];
     changed = true;
   }
+  const update = (id, patch) => { next = next.map((p) => (p.id === id ? { ...p, ...patch } : p)); };
   for (const b of open.values()) {
     const id = `nci_${b.id}`;
     const words = pinText(b);
+    const who = owners && !b.npc ? (b.owners ?? []).join(', ') : '';
+    const cat = cats[categoryOf(b)] ? categoryOf(b) : null;
     const last = remembered[b.id];
     if (!last) {
       const n = Object.values(remembered).filter((x) => x.district === b.district).length;
-      next.push({ id, cat: 'custom', ...words, hidden: false, ...pinPlace(districts.find((d) => d.id === b.district), n) });
-      remembered[b.id] = { ...words, district: b.district };
+      next.push({ id, cat: cat ?? 'custom', ...words, ...(who ? { who } : {}), hidden: false, ...pinPlace(districts.find((d) => d.id === b.district), n) });
+      remembered[b.id] = { ...words, district: b.district, who, cat: !!cat };
       changed = true;
-    } else if (last.name !== words.name || last.desc !== words.desc) {
-      next = next.map((p) => (p.id === id ? { ...p, ...words } : p));
-      remembered[b.id] = { ...words, district: b.district };
+      continue;
+    }
+    const memo = { ...last };
+    if (last.name !== words.name || last.desc !== words.desc) {
+      update(id, words);
+      Object.assign(memo, words, { district: b.district });
+    }
+    // Owners are written when they change, or when the setting turns them on or off.
+    if ((last.who ?? '') !== who) {
+      update(id, { who });
+      memo.who = who;
+    }
+    // A pin made before there were categories moves into its own, once, unless the GM has already put it somewhere.
+    if (!last.cat && cat) {
+      if (next.find((p) => p.id === id)?.cat === 'custom') update(id, { cat });
+      memo.cat = true;
+    }
+    if (JSON.stringify(memo) !== JSON.stringify(last)) {
+      remembered[b.id] = memo;
       changed = true;
     }
   }
@@ -232,8 +285,18 @@ if (typeof Hooks !== 'undefined') {
       type: Boolean,
       default: true,
     });
+    game.settings.register(MODULE_ID, 'owners', {
+      name: 'NCIB.Settings.Owners.Name',
+      hint: 'NCIB.Settings.Owners.Hint',
+      scope: 'world',
+      config: true,
+      type: Boolean,
+      default: true,
+    });
     // What has been put on the map, so a pin the GM deleted is not put back.
     game.settings.register(MODULE_ID, 'placed', { scope: 'world', config: false, type: Object, default: {} });
+    // The map categories already made, so one the GM deleted is not made again.
+    game.settings.register(MODULE_ID, 'categories', { scope: 'world', config: false, type: Array, default: [] });
   });
 
   Hooks.once('ready', () => {
@@ -268,10 +331,15 @@ if (typeof Hooks !== 'undefined') {
       const directory = game.modules?.get?.(INVEST_ID)?.api?.gm?.businessDirectory;
       if (!activeGM() || !directory || game.settings.get(MODULE_ID, 'pins') === false) return;
       const state = game.settings.get(MAP_ID, 'state') ?? {};
-      const out = syncPins({ pins: state.pins ?? [], placed: game.settings.get(MODULE_ID, 'placed') ?? {}, businesses: directory(), districts: currentDistricts(state, districts) });
-      if (!out.changed) return;
-      await game.settings.set(MAP_ID, 'state', { ...state, pins: out.pins });
-      await game.settings.set(MODULE_ID, 'placed', out.placed);
+      const made = ensureCategories(state.cats ?? {}, game.settings.get(MODULE_ID, 'categories') ?? []);
+      const out = syncPins({
+        pins: state.pins ?? [], placed: game.settings.get(MODULE_ID, 'placed') ?? {}, businesses: directory(), districts: currentDistricts(state, districts),
+        cats: made.cats, owners: game.settings.get(MODULE_ID, 'owners') !== false,
+      });
+      if (!out.changed && !made.changed) return;
+      await game.settings.set(MAP_ID, 'state', { ...state, cats: made.cats, pins: out.pins });
+      if (made.changed) await game.settings.set(MODULE_ID, 'categories', made.made);
+      if (out.changed) await game.settings.set(MODULE_ID, 'placed', out.placed);
     };
     const sync = () => {
       queue = queue.then(syncNow).catch((error) => console.error(`${MODULE_ID} | Could not update the map's pins`, error));
@@ -282,6 +350,8 @@ if (typeof Hooks !== 'undefined') {
       .catch(() => console.warn(`${MODULE_ID} | Could not read the map's districts: pins start at its centre.`))
       .finally(() => {
         Hooks.on(`${INVEST_ID}.businessesChanged`, sync);
+        // Owners on pins turned on or off.
+        Hooks.on('updateSetting', (setting) => { if (setting?.key === `${MODULE_ID}.owners`) sync(); });
         Hooks.once(`${INVEST_ID}.ready`, sync);
         sync();
       });
