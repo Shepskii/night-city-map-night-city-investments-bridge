@@ -51,6 +51,48 @@ export const CATEGORIES = Object.freeze({
 const categoryOf = (b) => (b.npc ? 'nci_npc' : 'nci_player');
 
 /**
+ * A business's pin. Night City Map treats only ids starting with "c" as its own custom pins, which the GM can edit, hide
+ * and delete; before 0.4.1 this bridge used `nci_`, which the map handled as one of its built-in places (0.4.1).
+ */
+export const pinId = (businessId) => `cnci_${businessId}`;
+const OLD_PREFIX = 'nci_';
+/** The business a pin is for, by either id, or null for a pin that isn't this bridge's. */
+export const businessOfPin = (id) => (String(id).startsWith('cnci_') ? String(id).slice(5) : String(id).startsWith(OLD_PREFIX) ? String(id).slice(OLD_PREFIX.length) : null);
+
+/**
+ * Forget the businesses whose pins are not on the map, so the next sync puts them back. Used once on upgrading to 0.4.1
+ * (the map gave the GM no way to delete these pins before, so a missing one was lost to an import or a reset), after an
+ * import or reset is seen, and when the GM asks for the pins back.
+ * @param {object} placed - business id to what was last written
+ * @param {object[]} pins - the map's pins
+ * @param {string[]|null} [only] - just these businesses
+ * @returns {{placed: object, forgotten: string[]}}
+ */
+export function forgetLost(placed, pins, only = null) {
+  const onMap = new Set((pins ?? []).map((p) => businessOfPin(p.id)).filter(Boolean));
+  const out = { ...placed };
+  const forgotten = Object.keys(out).filter((id) => !onMap.has(id) && (!only || only.includes(id)));
+  for (const id of forgotten) delete out[id];
+  return { placed: out, forgotten };
+}
+
+/**
+ * Whether a change to the map's pins was an import or a reset rather than the GM deleting a pin: it took away more than
+ * one pin at once, or all of them. Returns the businesses whose pins it took, to put back; none for a single deletion.
+ * @param {object[]} before - the pins before the change
+ * @param {object[]} after - the pins after it
+ * @returns {string[]}
+ */
+export function lostToImport(before, after) {
+  // Keyed by business for this bridge's pins, so renaming a pin's id is not a loss.
+  const key = (p) => businessOfPin(p.id) ?? p.id;
+  const now = new Set((after ?? []).map(key));
+  const gone = (before ?? []).map(key).filter((k) => !now.has(k));
+  const wholesale = gone.length > 1 || (gone.length > 0 && !(after ?? []).length);
+  return wholesale ? gone.filter((k) => (before ?? []).some((p) => key(p) === k && businessOfPin(p.id))) : [];
+}
+
+/**
  * Make this bridge's categories on the map, each once: one the GM has deleted is not made again, since `made` remembers it.
  * @param {object} cats - the map's own categories (`state.cats`)
  * @param {string[]} made - the categories made before
@@ -85,19 +127,25 @@ export function ensureCategories(cats = {}, made = []) {
  * @returns {{pins: object[], placed: object, changed: boolean}}
  */
 export function syncPins({ pins, placed, businesses, districts, cats = {}, owners = true }) {
-  let next = [...pins];
-  const remembered = { ...placed };
   let changed = false;
+  // A pin made before 0.4.1 takes the id the map treats as its own, keeping everything else.
+  let next = pins.map((p) => {
+    if (!String(p.id).startsWith(OLD_PREFIX)) return p;
+    changed = true;
+    return { ...p, id: pinId(String(p.id).slice(OLD_PREFIX.length)) };
+  });
+  const remembered = { ...placed };
   const open = new Map(businesses.filter((b) => b.status === 'open').map((b) => [b.id, b]));
   for (const id of Object.keys(remembered)) {
     if (open.has(id)) continue;
-    next = next.filter((p) => p.id !== `nci_${id}`);
+    next = next.filter((p) => p.id !== pinId(id));
     delete remembered[id];
     changed = true;
   }
   const update = (id, patch) => { next = next.map((p) => (p.id === id ? { ...p, ...patch } : p)); };
+  const ours = new Set(Object.keys(CATEGORIES));
   for (const b of open.values()) {
-    const id = `nci_${b.id}`;
+    const id = pinId(b.id);
     const words = pinText(b);
     const who = owners && !b.npc ? (b.owners ?? []).join(', ') : '';
     const cat = cats[categoryOf(b)] ? categoryOf(b) : null;
@@ -105,7 +153,7 @@ export function syncPins({ pins, placed, businesses, districts, cats = {}, owner
     if (!last) {
       const n = Object.values(remembered).filter((x) => x.district === b.district).length;
       next.push({ id, cat: cat ?? 'custom', ...words, ...(who ? { who } : {}), hidden: false, ...pinPlace(districts.find((d) => d.id === b.district), n) });
-      remembered[b.id] = { ...words, district: b.district, who, cat: !!cat };
+      remembered[b.id] = { ...words, district: b.district, who, cat: cat ?? false };
       changed = true;
       continue;
     }
@@ -119,10 +167,19 @@ export function syncPins({ pins, placed, businesses, districts, cats = {}, owner
       update(id, { who });
       memo.who = who;
     }
-    // A pin made before there were categories moves into its own, once, unless the GM has already put it somewhere.
-    if (!last.cat && cat) {
-      if (next.find((p) => p.id === id)?.cat === 'custom') update(id, { cat });
-      memo.cat = true;
+    // The pin's category follows the business: a pin made before there were categories moves into its own once, and
+    // one of ours moves when the business goes from a player's to an NPC's or back. Where the GM put it, it stays.
+    const pin = next.find((p) => p.id === id);
+    if (pin && cat) {
+      const now = pin.cat ?? 'custom';
+      // `last.cat` is the category this bridge last put it in: a key since 0.4.1, `true` from 0.4.0 (one of ours).
+      const ourChoice = now === 'custom' ? !last.cat : ours.has(now) && (last.cat === true || last.cat === now);
+      if (now !== cat && ourChoice) {
+        update(id, { cat });
+        memo.cat = cat;
+      } else if (now === cat || !last.cat) {
+        memo.cat = now === cat ? cat : now;
+      }
     }
     if (JSON.stringify(memo) !== JSON.stringify(last)) {
       remembered[b.id] = memo;
@@ -297,6 +354,17 @@ if (typeof Hooks !== 'undefined') {
     game.settings.register(MODULE_ID, 'placed', { scope: 'world', config: false, type: Object, default: {} });
     // The map categories already made, so one the GM deleted is not made again.
     game.settings.register(MODULE_ID, 'categories', { scope: 'world', config: false, type: Array, default: [] });
+    // Whether the pins lost before 0.4.1 have been put back, once.
+    game.settings.register(MODULE_ID, 'restoredLost', { scope: 'world', config: false, type: Boolean, default: false });
+    // The GM asks for every missing business pin back; it unticks itself once done.
+    game.settings.register(MODULE_ID, 'restore', {
+      name: 'NCIB.Settings.Restore.Name',
+      hint: 'NCIB.Settings.Restore.Hint',
+      scope: 'world',
+      config: true,
+      type: Boolean,
+      default: false,
+    });
   });
 
   Hooks.once('ready', () => {
@@ -327,13 +395,32 @@ if (typeof Hooks !== 'undefined') {
     // Night City Map has no API for its pins or districts: they are in the same setting, and its built-in districts in its data.
     let districts = [];
     let queue = Promise.resolve();
+    let warnedOld = false;
+    /** Forget missing pins (all, or just these businesses), so the next sync puts them back. */
+    const forget = async (only = null) => {
+      const { placed, forgotten } = forgetLost(game.settings.get(MODULE_ID, 'placed') ?? {}, game.settings.get(MAP_ID, 'state')?.pins ?? [], only);
+      if (forgotten.length) await game.settings.set(MODULE_ID, 'placed', placed);
+      return forgotten;
+    };
     const syncNow = async () => {
       const directory = game.modules?.get?.(INVEST_ID)?.api?.gm?.businessDirectory;
       if (!activeGM() || !directory || game.settings.get(MODULE_ID, 'pins') === false) return;
+      // Pins lost before 0.4.1 come back once: the map had no way for the GM to delete them.
+      if (!game.settings.get(MODULE_ID, 'restoredLost')) {
+        const back = await forget();
+        await game.settings.set(MODULE_ID, 'restoredLost', true);
+        if (back.length) console.info(`${MODULE_ID} | Putting back ${back.length} business pin(s) missing from the map.`);
+      }
+      const businesses = directory();
+      // Night City Investments before 0.25.2 doesn't say which businesses are NPCs', so every pin would be a player's.
+      if (!warnedOld && businesses.length && !('npc' in businesses[0])) {
+        warnedOld = true;
+        ui.notifications.warn(game.i18n.localize('NCIB.Warn.OldInvestmentsPins'));
+      }
       const state = game.settings.get(MAP_ID, 'state') ?? {};
       const made = ensureCategories(state.cats ?? {}, game.settings.get(MODULE_ID, 'categories') ?? []);
       const out = syncPins({
-        pins: state.pins ?? [], placed: game.settings.get(MODULE_ID, 'placed') ?? {}, businesses: directory(), districts: currentDistricts(state, districts),
+        pins: state.pins ?? [], placed: game.settings.get(MODULE_ID, 'placed') ?? {}, businesses, districts: currentDistricts(state, districts),
         cats: made.cats, owners: game.settings.get(MODULE_ID, 'owners') !== false,
       });
       if (!out.changed && !made.changed) return;
@@ -352,6 +439,27 @@ if (typeof Hooks !== 'undefined') {
         Hooks.on(`${INVEST_ID}.businessesChanged`, sync);
         // Owners on pins turned on or off.
         Hooks.on('updateSetting', (setting) => { if (setting?.key === `${MODULE_ID}.owners`) sync(); });
+        // The GM asks for the missing pins back: forget them, put them back, and untick the setting.
+        Hooks.on('updateSetting', (setting) => {
+          if (setting?.key !== `${MODULE_ID}.restore` || !activeGM() || game.settings.get(MODULE_ID, 'restore') !== true) return;
+          queue = queue.then(async () => {
+            const back = await forget();
+            ui.notifications.info(game.i18n.format('NCIB.Info.Restored', { n: back.length }));
+            await game.settings.set(MODULE_ID, 'restore', false);
+          }).catch((error) => console.error(`${MODULE_ID} | Could not put the pins back`, error));
+          sync();
+        });
+        // An import or reset of the map replaces its pins: the businesses' come back, where one the GM deletes does not.
+        let before = game.settings.get(MAP_ID, 'state')?.pins ?? [];
+        Hooks.on('updateSetting', (setting) => {
+          if (setting?.key !== `${MAP_ID}.state`) return;
+          const after = game.settings.get(MAP_ID, 'state')?.pins ?? [];
+          const lost = lostToImport(before, after);
+          before = after;
+          if (!lost.length || !activeGM()) return;
+          queue = queue.then(() => forget(lost)).catch((error) => console.error(`${MODULE_ID} | Could not note lost pins`, error));
+          sync();
+        });
         Hooks.once(`${INVEST_ID}.ready`, sync);
         sync();
       });

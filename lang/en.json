@@ -7,7 +7,11 @@
       },
       "Pins": {
         "Name": "Show player businesses on the map",
-        "Hint": "Each open business in Night City Investments gets a pin in its district, showing its name, kind, stage and location, and nothing else. Players' businesses go in a Player businesses category and NPCs' companies in NPC companies. Move, edit, hide or delete a pin as you like: your changes stay."
+        "Hint": "Each open business in Night City Investments gets a pin in its district, showing its name, kind, stage and location, and nothing else. Players' businesses go in a Player businesses category and NPCs' companies in NPC companies. Move, edit, hide or delete a pin as you like: your changes stay. An import or reset of the map doesn't count as deleting: those pins come back."
+      },
+      "Restore": {
+        "Name": "Put back missing business pins",
+        "Hint": "Tick and save to put back the pin of every open business that is missing from the map, such as after an import or a reset. It unticks itself. A pin you delete on the map otherwise stays deleted."
       },
       "Owners": {
         "Name": "Name the owners of player businesses on their pins",
@@ -17,7 +21,11 @@
     "Warn": {
       "NoInvestments": "Night City Investments is not active, so gig outcomes cannot be reported.",
       "OldInvestments": "This version of Night City Investments cannot receive gig outcomes. Update it to version 0.6.0 or later.",
-      "NoMap": "Night City Map is not active, so there are no gigs to watch."
+      "NoMap": "Night City Map is not active, so there are no gigs to watch.",
+      "OldInvestmentsPins": "This version of Night City Investments doesn't say which businesses are NPCs', so every business pin goes in Player businesses. Update it to version 0.25.2 or later."
+    },
+    "Info": {
+      "Restored": "Night City Investments bridge: putting back {n} missing business pin(s)."
     }
   }
 }

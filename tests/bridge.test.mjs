@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { diffGigs, buildReport, findRunners, createBridge, syncPins, currentDistricts, ensureCategories } from '../scripts/bridge-0.4.0.js';
+import { diffGigs, buildReport, findRunners, createBridge, syncPins, currentDistricts, ensureCategories, pinId, businessOfPin, forgetLost, lostToImport } from '../scripts/bridge-0.4.1.js';
 
 const gig = (id, status, extra = {}) => ({ id, status, title: `Gig ${id}`, client: 'Arasaka', reward: '1500 eb', ...extra });
 const quiet = { info() {}, error() {} };
@@ -181,7 +181,7 @@ const pinsFor = (businesses, pins = [], placed = {}) => syncPins({ pins, placed,
 test('an open business gets a pin near its district\'s centre, saying what the street can see', () => {
   const { pins, placed, changed } = pinsFor([shop('a'), shop('p', { status: 'pending' }), shop('f', { status: 'forming' })]);
   assert.equal(changed, true);
-  assert.deepEqual(pins.map((p) => p.id), ['nci_a'], 'not until it opens');
+  assert.deepEqual(pins.map((p) => p.id), ['cnci_a'], 'not until it opens');
   assert.equal(pins[0].name, 'Shop a');
   assert.equal(pins[0].desc, 'Ripperdoc clinic · Side business · Upstairs');
   assert.equal(pins[0].cat, 'custom');
@@ -253,7 +253,7 @@ test('the bridge makes its two categories once, and not again after the GM delet
 
 test('a player\'s business goes in Player businesses with its owners; an NPC\'s company in NPC companies without', () => {
   const { pins } = withCats([shop('a', { owners: ['Splice', 'Boar'] }), shop('n', { npc: true, owners: ['Marek Hale'] })]);
-  assert.deepEqual(pins.map((p) => [p.id, p.cat, p.who]), [['nci_a', 'nci_player', 'Splice, Boar'], ['nci_n', 'nci_npc', undefined]]);
+  assert.deepEqual(pins.map((p) => [p.id, p.cat, p.who]), [['cnci_a', 'nci_player', 'Splice, Boar'], ['cnci_n', 'nci_npc', undefined]]);
   const none = withCats([shop('a', { owners: [] })]);
   assert.equal('who' in none.pins[0], false, 'no owners, no field');
   const off = withCats([shop('a', { owners: ['Splice'] })], [], {}, { owners: false });
@@ -275,7 +275,7 @@ test('owners are rewritten only when they change, or when the setting turns them
 
 test('a pin from before categories moves into its own once; one the GM placed elsewhere, or moved back, stays', () => {
   const old = syncPins({ pins: [], placed: {}, businesses: [shop('a'), shop('b')], districts: DISTRICTS });
-  const placedElsewhere = old.pins.map((p) => (p.id === 'nci_b' ? { ...p, cat: 'food' } : p));
+  const placedElsewhere = old.pins.map((p) => (p.id === 'cnci_b' ? { ...p, cat: 'food' } : p));
   const moved = withCats([shop('a'), shop('b')], placedElsewhere, old.placed);
   assert.deepEqual(moved.pins.map((p) => p.cat), ['nci_player', 'food']);
   const back = moved.pins.map((p) => ({ ...p, cat: 'custom' }));
@@ -284,4 +284,50 @@ test('a pin from before categories moves into its own once; one the GM placed el
   assert.deepEqual(again.pins.map((p) => p.cat), ['custom', 'custom']);
   const noCat = withCats([shop('c')], [], {}, { cats: {} });
   assert.equal(noCat.pins[0].cat, 'custom', 'a deleted category leaves new pins as GM Markers');
+});
+
+// ── 0.4.1: ids the map treats as its own, the category following the business, pins lost to an import ──────
+
+test('a pin\'s id is one the map treats as its own, and a pin from before is renamed in place', () => {
+  assert.equal(pinId('bus_1'), 'cnci_bus_1');
+  assert.ok(pinId('bus_1').startsWith('c'), 'Night City Map edits, hides and deletes only ids starting with c');
+  assert.equal(businessOfPin('cnci_bus_1'), 'bus_1');
+  assert.equal(businessOfPin('nci_bus_1'), 'bus_1');
+  assert.equal(businessOfPin('c1abc'), null);
+  const old = { id: 'nci_a', cat: 'nci_player', name: 'Shop a', desc: 'Ripperdoc clinic · Side business · Upstairs', x: 0.9, y: 0.9, hidden: true };
+  const placed = { a: { name: 'Shop a', desc: 'Ripperdoc clinic · Side business · Upstairs', district: 'watson', who: '', cat: true } };
+  const out = withCats([shop('a')], [old, { id: 'c1', name: 'Mine' }], placed);
+  assert.equal(out.changed, true);
+  assert.deepEqual(out.pins.map((p) => p.id), ['cnci_a', 'c1']);
+  assert.deepEqual([out.pins[0].x, out.pins[0].hidden, out.pins[0].cat], [0.9, true, 'nci_player'], 'where the GM put it, and as they left it');
+  assert.equal(withCats([shop('a')], out.pins, out.placed).changed, false, 'once only');
+});
+
+test('the category follows the business: an NPC\'s company moves to NPC companies, unless the GM put it elsewhere', () => {
+  const first = withCats([shop('a')]);
+  assert.equal(first.pins[0].cat, 'nci_player');
+  assert.equal(first.placed.a.cat, 'nci_player');
+  const npc = withCats([shop('a', { npc: true })], first.pins, first.placed);
+  assert.equal(npc.pins[0].cat, 'nci_npc');
+  const gmMoved = first.pins.map((p) => ({ ...p, cat: 'food' }));
+  assert.equal(withCats([shop('a', { npc: true })], gmMoved, first.placed).pins[0].cat, 'food', 'the GM\'s choice stands');
+  // From 0.4.0, the memory only says it went in one of ours.
+  const fromOld = withCats([shop('a', { npc: true })], first.pins, { a: { ...first.placed.a, cat: true } });
+  assert.equal(fromOld.pins[0].cat, 'nci_npc');
+});
+
+test('pins lost to an import or a reset come back; one the GM deletes does not', () => {
+  const pins = [{ id: 'cnci_a' }, { id: 'cnci_b' }, { id: 'c1' }];
+  assert.deepEqual(lostToImport(pins, pins.filter((p) => p.id !== 'cnci_a')), [], 'one deleted by the GM');
+  assert.deepEqual(lostToImport(pins, [{ id: 'c9' }]).sort(), ['a', 'b'], 'replaced by a file');
+  assert.deepEqual(lostToImport([{ id: 'cnci_a' }], []), ['a'], 'a reset that empties the pins');
+  assert.deepEqual(lostToImport([{ id: 'nci_a' }, { id: 'nci_b' }], [{ id: 'cnci_a' }, { id: 'cnci_b' }]), [], 'renaming is not a loss');
+  const placed = { a: { name: 'A' }, b: { name: 'B' }, c: { name: 'C' } };
+  const out = forgetLost(placed, [{ id: 'cnci_c' }]);
+  assert.deepEqual(out.forgotten.sort(), ['a', 'b']);
+  assert.deepEqual(Object.keys(out.placed), ['c']);
+  assert.deepEqual(forgetLost(placed, [], ['a']).forgotten, ['a'], 'just the ones asked for');
+  // Forgotten, it is placed again at the next sync.
+  const again = withCats([shop('a')], [], out.placed);
+  assert.deepEqual(again.pins.map((p) => p.id), ['cnci_a']);
 });
