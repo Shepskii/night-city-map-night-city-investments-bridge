@@ -331,3 +331,21 @@ test('pins lost to an import or a reset come back; one the GM deletes does not',
   const again = withCats([shop('a')], [], out.placed);
   assert.deepEqual(again.pins.map((p) => p.id), ['cnci_a']);
 });
+
+test('the owners and restore settings act on their own change, which also runs the first time a value is stored', async () => {
+  const registered = {};
+  const once = {};
+  const saved = { Hooks: globalThis.Hooks, game: globalThis.game };
+  globalThis.Hooks = { once: (name, fn) => { once[name] = fn; }, on: () => {} };
+  globalThis.game = { settings: { register: (mod, key, cfg) => { registered[key] = cfg; } } };
+  try {
+    await import(`../scripts/bridge-0.4.1.js?wiring=${Date.now()}`);
+    once.init();
+    assert.equal(typeof registered.restore.onChange, 'function', 'not an updateSetting hook, which misses a setting\'s first save');
+    assert.equal(typeof registered.owners.onChange, 'function');
+    assert.doesNotThrow(() => registered.restore.onChange(true), 'harmless before the GM\'s client is ready');
+  } finally {
+    globalThis.Hooks = saved.Hooks;
+    globalThis.game = saved.game;
+  }
+});

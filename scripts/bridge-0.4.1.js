@@ -323,6 +323,9 @@ export function createBridge({ getGigs, getApi, isActiveGM, enabled = () => true
 
 if (typeof Hooks !== 'undefined') {
   const mapGigs = () => game.settings.get(MAP_ID, 'state')?.quests ?? [];
+  // What this bridge's own settings do when changed, set once the GM's client is ready. A setting's onChange runs when
+  // its value is first stored as well as when it changes; an updateSetting hook misses the first time.
+  const handlers = {};
   const activeGM = () => !!game.user?.isGM && game.user.id === game.users.activeGM?.id;
 
   Hooks.once('init', () => {
@@ -349,6 +352,7 @@ if (typeof Hooks !== 'undefined') {
       config: true,
       type: Boolean,
       default: true,
+      onChange: () => handlers.sync?.(),
     });
     // What has been put on the map, so a pin the GM deleted is not put back.
     game.settings.register(MODULE_ID, 'placed', { scope: 'world', config: false, type: Object, default: {} });
@@ -364,6 +368,7 @@ if (typeof Hooks !== 'undefined') {
       config: true,
       type: Boolean,
       default: false,
+      onChange: (value) => { if (value === true) handlers.restore?.(); },
     });
   });
 
@@ -438,17 +443,20 @@ if (typeof Hooks !== 'undefined') {
       .finally(() => {
         Hooks.on(`${INVEST_ID}.businessesChanged`, sync);
         // Owners on pins turned on or off.
-        Hooks.on('updateSetting', (setting) => { if (setting?.key === `${MODULE_ID}.owners`) sync(); });
+        handlers.sync = sync;
         // The GM asks for the missing pins back: forget them, put them back, and untick the setting.
-        Hooks.on('updateSetting', (setting) => {
-          if (setting?.key !== `${MODULE_ID}.restore` || !activeGM() || game.settings.get(MODULE_ID, 'restore') !== true) return;
+        handlers.restore = () => {
+          if (!activeGM()) return;
           queue = queue.then(async () => {
+            if (game.settings.get(MODULE_ID, 'restore') !== true) return;
             const back = await forget();
             ui.notifications.info(game.i18n.format('NCIB.Info.Restored', { n: back.length }));
             await game.settings.set(MODULE_ID, 'restore', false);
           }).catch((error) => console.error(`${MODULE_ID} | Could not put the pins back`, error));
           sync();
-        });
+        };
+        // Left ticked from before a reload, or ticked while no GM was ready: do it now.
+        if (game.settings.get(MODULE_ID, 'restore') === true) handlers.restore();
         // An import or reset of the map replaces its pins: the businesses' come back, where one the GM deletes does not.
         let before = game.settings.get(MAP_ID, 'state')?.pins ?? [];
         Hooks.on('updateSetting', (setting) => {
